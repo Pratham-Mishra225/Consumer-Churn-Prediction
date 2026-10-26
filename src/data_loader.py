@@ -42,11 +42,15 @@ def load_data():
 
 def validate_data(df):
     """
-    Validate the loaded dataset for:
-    - Required columns presence
-    - Target column validity
-    - Missing target values
-    - Invalid data types
+    Validate the loaded dataset.
+
+    Checks performed:
+    - All columns in REQUIRED_COLUMNS are present
+    - The target column (Churn) has no missing values
+    - All values in the target column are in EXPECTED_TARGET_VALUES {'No', 'Yes'}
+
+    Note: column dtype validation is not performed here; type coercions
+    (e.g. TotalCharges string → numeric) are handled in prepare_feature_types().
     """
     # Check required columns
     missing_cols = set(REQUIRED_COLUMNS) - set(df.columns)

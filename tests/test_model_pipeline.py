@@ -402,17 +402,215 @@ class TestTargetLeakagePrevention:
         """Test target column is not in feature set."""
         train_df = pd.read_csv(TRAIN_DATA_PATH)
         X_train = train_df.drop(columns=[TARGET_COLUMN])
-        
+
         assert TARGET_COLUMN not in X_train.columns
 
     def test_feature_columns_do_not_contain_target_info(self):
-        """Test feature columns don't contain target information."""
+        """Test feature columns don't contain target information (case-insensitive).
+
+        The original assertion used col.lower() correctly but compared against the
+        mixed-case string 'Churn' — which can never be found in a lowercase string.
+        Fixed to compare against the lowercase literal 'churn'.
+        """
         train_df = pd.read_csv(TRAIN_DATA_PATH)
         X_train = train_df.drop(columns=[TARGET_COLUMN])
-        
-        # Check no column contains 'Churn' in name
+
         for col in X_train.columns:
-            assert 'Churn' not in col.lower()
+            assert 'churn' not in col.lower(), (
+                f"Feature column '{col}' contains 'churn' — potential target leakage"
+            )
+
+    def test_test_feature_columns_do_not_contain_target_info(self):
+        """Same leakage check on held-out test features."""
+        test_df = pd.read_csv(TEST_DATA_PATH)
+        X_test = test_df.drop(columns=[TARGET_COLUMN])
+
+        for col in X_test.columns:
+            assert 'churn' not in col.lower(), (
+                f"Test feature column '{col}' contains 'churn' — potential target leakage"
+            )
+
+
+class TestParameterReconstruction:
+    """Verify that tuned hyperparameters are actually applied to each model.
+
+    These tests use hardcoded representative parameter dictionaries (matching
+    the GridSearchCV key-naming convention) and confirm the parameters reach
+    the underlying estimator.  No full grid search is executed.
+    """
+
+    def _make_preprocessor(self):
+        train_df = pd.read_csv(TRAIN_DATA_PATH)
+        X_train = train_df.drop(columns=[TARGET_COLUMN])
+        preprocessor, _, _, _ = get_preprocessor_and_features(X_train)
+        return preprocessor
+
+    def test_logistic_regression_params_applied(self):
+        """classifier__C and classifier__class_weight reach LogisticRegression."""
+        from final_evaluation import build_pipeline_with_params
+        preprocessor = self._make_preprocessor()
+        params = {'classifier__C': 0.01, 'classifier__class_weight': 'balanced'}
+        pipeline = build_pipeline_with_params(preprocessor, 'Logistic Regression', params)
+        clf = pipeline.named_steps['classifier']
+        assert isinstance(clf, LogisticRegression)
+        assert clf.C == 0.01
+        assert clf.class_weight == 'balanced'
+        # max_iter must come from the factory default (1000), not the tuned params
+        assert clf.max_iter == 1000
+
+    def test_decision_tree_params_applied(self):
+        """classifier__max_depth and classifier__min_samples_leaf reach DecisionTreeClassifier."""
+        from final_evaluation import build_pipeline_with_params
+        preprocessor = self._make_preprocessor()
+        params = {
+            'classifier__max_depth': 5,
+            'classifier__min_samples_leaf': 10,
+            'classifier__class_weight': None,
+        }
+        pipeline = build_pipeline_with_params(preprocessor, 'Decision Tree', params)
+        clf = pipeline.named_steps['classifier']
+        assert isinstance(clf, DecisionTreeClassifier)
+        assert clf.max_depth == 5
+        assert clf.min_samples_leaf == 10
+
+    def test_random_forest_params_applied(self):
+        """classifier__n_estimators, max_depth, max_features reach RandomForestClassifier."""
+        from final_evaluation import build_pipeline_with_params
+        preprocessor = self._make_preprocessor()
+        params = {
+            'classifier__n_estimators': 200,
+            'classifier__max_depth': 10,
+            'classifier__max_features': 'sqrt',
+            'classifier__min_samples_leaf': 5,
+            'classifier__class_weight': None,
+        }
+        pipeline = build_pipeline_with_params(preprocessor, 'Random Forest', params)
+        clf = pipeline.named_steps['classifier']
+        assert isinstance(clf, RandomForestClassifier)
+        assert clf.n_estimators == 200
+        assert clf.max_depth == 10
+        assert clf.max_features == 'sqrt'
+        assert clf.min_samples_leaf == 5
+
+    def test_svc_nested_params_applied(self):
+        """classifier__estimator__C/kernel/gamma reach the SVC inside CalibratedClassifierCV.
+
+        This is the critical regression test: the old setattr()-based approach left
+        params on the CalibratedClassifierCV wrapper (as phantom attributes) instead
+        of propagating them into the SVC estimator.
+        """
+        from final_evaluation import build_pipeline_with_params
+        preprocessor = self._make_preprocessor()
+        params = {
+            'classifier__estimator__C': 0.1,
+            'classifier__estimator__kernel': 'rbf',
+            'classifier__estimator__gamma': 'auto',
+            'classifier__estimator__class_weight': 'balanced',
+        }
+        pipeline = build_pipeline_with_params(preprocessor, 'Support Vector Classifier', params)
+        calibrated = pipeline.named_steps['classifier']
+        assert isinstance(calibrated, CalibratedClassifierCV)
+        svc = calibrated.estimator
+        assert isinstance(svc, SVC)
+        # These must be on the inner SVC, not phantom attrs on the wrapper
+        assert svc.C == 0.1
+        assert svc.kernel == 'rbf'
+        assert svc.gamma == 'auto'
+        assert svc.class_weight == 'balanced'
+        # Verify no phantom attributes were created on the wrapper
+        assert not hasattr(calibrated, 'C'), (
+            "C was set as a phantom attribute on CalibratedClassifierCV instead of on SVC"
+        )
+
+
+class TestSavedModelMetadataConsistency:
+    """Verify the saved artifact matches what model_metadata.json claims."""
+
+    def test_saved_model_classifier_type_matches_metadata(self):
+        """The classifier type in the loaded pipeline must match model_name in metadata."""
+        if not (SAVED_MODELS_DIR / 'best_model.joblib').exists():
+            pytest.skip('Saved model not found — run final_evaluation.py first')
+        if not (SAVED_MODELS_DIR / 'model_metadata.json').exists():
+            pytest.skip('Model metadata not found — run final_evaluation.py first')
+
+        import json
+        with open(SAVED_MODELS_DIR / 'model_metadata.json', encoding='utf-8') as fh:
+            meta = json.load(fh)
+
+        pipeline = joblib.load(SAVED_MODELS_DIR / 'best_model.joblib')
+        clf = pipeline.named_steps['classifier']
+
+        name_to_type = {
+            'Logistic Regression': LogisticRegression,
+            'Decision Tree': DecisionTreeClassifier,
+            'Random Forest': RandomForestClassifier,
+            'Support Vector Classifier': CalibratedClassifierCV,
+        }
+        expected_type = name_to_type[meta['model_name']]
+        assert isinstance(clf, expected_type), (
+            f"Metadata says {meta['model_name']} but loaded classifier is {type(clf).__name__}"
+        )
+
+    def test_saved_model_params_match_metadata(self):
+        """The fitted estimator's reported params must agree with model_metadata.json.
+
+        For Logistic Regression this means C and class_weight at minimum.
+        """
+        if not (SAVED_MODELS_DIR / 'best_model.joblib').exists():
+            pytest.skip('Saved model not found — run final_evaluation.py first')
+        if not (SAVED_MODELS_DIR / 'model_metadata.json').exists():
+            pytest.skip('Model metadata not found — run final_evaluation.py first')
+
+        import json
+        with open(SAVED_MODELS_DIR / 'model_metadata.json', encoding='utf-8') as fh:
+            meta = json.load(fh)
+
+        pipeline = joblib.load(SAVED_MODELS_DIR / 'best_model.joblib')
+        clf = pipeline.named_steps['classifier']
+
+        if meta['model_name'] == 'Logistic Regression':
+            for param, expected in meta['best_params'].items():
+                actual = getattr(clf, param, '__MISSING__')
+                assert actual != '__MISSING__', f"Param '{param}' not found on fitted estimator"
+                assert actual == expected, (
+                    f"Param '{param}': metadata says {expected!r}, fitted model has {actual!r}"
+                )
+
+    def test_saved_model_sklearn_version_in_metadata(self):
+        """model_metadata.json must record the scikit-learn version used for training."""
+        if not (SAVED_MODELS_DIR / 'model_metadata.json').exists():
+            pytest.skip('Model metadata not found — run final_evaluation.py first')
+
+        import json
+        with open(SAVED_MODELS_DIR / 'model_metadata.json', encoding='utf-8') as fh:
+            meta = json.load(fh)
+
+        assert 'scikit_learn_version' in meta, (
+            "model_metadata.json is missing 'scikit_learn_version' field"
+        )
+        import sklearn
+        assert meta['scikit_learn_version'] == sklearn.__version__, (
+            f"Metadata records sklearn {meta['scikit_learn_version']} but "
+            f"environment has {sklearn.__version__} — artifact was built with a "
+            "different version"
+        )
+
+    def test_saved_model_probability_outputs(self):
+        """Saved pipeline must produce valid probabilities (in [0,1], sum to 1)."""
+        if not (SAVED_MODELS_DIR / 'best_model.joblib').exists():
+            pytest.skip('Saved model not found — run final_evaluation.py first')
+
+        test_df = pd.read_csv(TEST_DATA_PATH)
+        X_test = test_df.drop(columns=[TARGET_COLUMN])
+        X_test_prep = prepare_feature_types(X_test)
+
+        pipeline = joblib.load(SAVED_MODELS_DIR / 'best_model.joblib')
+        proba = pipeline.predict_proba(X_test_prep)
+
+        assert proba.shape[1] == 2
+        assert np.all(proba >= 0.0)
+        assert np.all(proba <= 1.0)
+        assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-6)
 
 
 class TestIntegration:
@@ -422,42 +620,42 @@ class TestIntegration:
         """Test complete training path without expensive grid search."""
         train_df = pd.read_csv(TRAIN_DATA_PATH)
         test_df = pd.read_csv(TEST_DATA_PATH)
-        
+
         X_train = train_df.drop(columns=[TARGET_COLUMN])
         y_train = train_df[TARGET_COLUMN]
         X_test = test_df.drop(columns=[TARGET_COLUMN])
         y_test = test_df[TARGET_COLUMN]
-        
+
         # Prepare features
         X_train_prep = prepare_feature_types(X_train)
         X_test_prep = prepare_feature_types(X_test)
-        
+
         # Build preprocessor
         preprocessor, _, _, _ = get_preprocessor_and_features(X_train)
-        
+
         # Train simple model
         model = LogisticRegression(random_state=42, max_iter=1000)
         pipeline = Pipeline([
             ('preprocessor', preprocessor),
             ('classifier', model)
         ])
-        
+
         pipeline.fit(X_train_prep, y_train)
-        
+
         # Make predictions
         y_pred = pipeline.predict(X_test_prep)
         y_proba = pipeline.predict_proba(X_test_prep)[:, 1]
-        
+
         # Calculate metrics
         roc_auc = roc_auc_score(y_test, y_proba)
         avg_precision = average_precision_score(y_test, y_proba)
-        
+
         # Check metrics are reasonable
         assert 0 <= roc_auc <= 1
         assert 0 <= avg_precision <= 1
         assert roc_auc > 0.5  # Better than random
         assert avg_precision > 0.2  # Better than random for imbalanced data
-        
+
         # Check predictions are valid
         assert set(y_pred).issubset({0, 1})
         assert len(y_pred) == len(y_test)

@@ -47,8 +47,7 @@ consumer_churn_prediction/
 │       └── test.csv
 ├── src/
 │   ├── data_loader.py
-│   ├── preprocessing.py
-│   └── evaluation.py
+│   └── preprocessing.py
 ├── algorithms/
 │   ├── logistic_regression.py
 │   ├── decision_tree.py
@@ -213,7 +212,8 @@ pip install -r requirements.txt
 
 ### Evaluation Visualizations
 
-- **Confusion Matrix:** Shows 270 true positives, 104 false positives, 270 false negatives, 765 true negatives
+- **Confusion Matrix:** Shows TN=803, FP=232, FN=104, TP=270
+  (No Churn: 1035 test samples; Churn: 374 test samples)
 - **ROC Curve:** AUC of 0.8420, indicating good discriminative ability
 - **Precision-Recall Curve:** AP of 0.6337, showing trade-off between precision and recall
 - **Model Comparison Chart:** Visual comparison of all four tuned models across metrics
@@ -223,16 +223,14 @@ pip install -r requirements.txt
 **Winner:** Logistic Regression
 
 **Evidence:**
-1. Highest cross-validation Average Precision (0.6615)
-2. Highest ROC-AUC (0.8461)
-3. Consistent performance across folds (low std)
-4. Simple, interpretable model
+1. Highest cross-validation Average Precision (0.6615 ± 0.0194)
+2. **Note:** Random Forest is effectively tied (0.6610 ± 0.0193) — the difference
+   is < 0.001 and within one standard deviation. The selection is based on the
+   overall balance of performance, training speed, and interpretability, not a
+   decisive AP advantage.
+3. Highest ROC-AUC (0.8461)
+4. Simple, interpretable linear model
 5. Fast training and inference
-
-**Trade-offs:**
-- Random Forest achieved similar AP (0.6610) with higher precision but lower recall
-- SVC achieved best F1-score (0.6028) but took 4x longer to train
-- Logistic Regression provides best balance of performance, speed, and interpretability
 
 ## Threshold Trade-offs
 
@@ -314,7 +312,7 @@ Output: Model artifacts and evaluation reports in `reports/` and `saved_models/`
 ```bash
 pytest -v
 ```
-All 38 tests should pass
+All tests should pass
 
 ### Load Saved Model
 ```python
@@ -361,7 +359,7 @@ probability = pipeline.predict_proba(new_data_prepared)[:, 1]
 
 ## Testing
 
-The project includes 38 pytest tests covering:
+The project includes pytest tests covering:
 - Data loading and validation (8 tests)
 - Preprocessing pipeline (10 tests)
 - Data leakage prevention (2 tests)

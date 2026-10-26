@@ -10,11 +10,11 @@
 ```
 
 **Cross-Validation Performance (Training Data):**
-- Average Precision: 0.6615
-- ROC-AUC: 0.8461 � 0.0126
-- Precision: 0.6521 � 0.0256
-- Recall: 0.5438 � 0.0409
-- F1-Score: 0.5924 � 0.0298
+- Average Precision: 0.6615 ± 0.0194
+- ROC-AUC: 0.8461 ± 0.0126
+- Precision: 0.6521 ± 0.0256
+- Recall: 0.5438 ± 0.0409
+- F1-Score: 0.5924 ± 0.0298
 
 ## Threshold Analysis (Training Data)
 
@@ -23,7 +23,7 @@
 - Precision: 0.6520
 - Recall: 0.5438
 
-**Optimal Threshold (F1-Maximizing): 0.3273:**
+**Optimal Threshold (F1-Maximizing): 0.3273):**
 - F1-Score: 0.6381
 - Precision: 0.5591
 - Recall: 0.7431
@@ -42,9 +42,21 @@
 
 ## Selection Rationale
 
-The model was selected based on cross-validation Average Precision from Phase 3 hyperparameter tuning. This metric was chosen as the primary ranking criterion because it summarizes precision-recall trade-off and is appropriate for imbalanced datasets (churn rate ~26.5%).
+The model was selected based on cross-validation Average Precision from Phase 3
+hyperparameter tuning. This metric was chosen as the primary ranking criterion
+because it summarises the precision-recall trade-off and is appropriate for
+imbalanced datasets (churn rate ~26.5%).
+
+**Note on model comparison:** Logistic Regression (AP 0.6615) and Random Forest
+(AP 0.6610) are effectively tied on mean cross-validation Average Precision
+(difference < 0.001). Logistic Regression was selected because it achieves
+equivalent discriminative performance with faster training and greater
+interpretability. This is not a decisive advantage on AP alone; see
+`reports/hyperparameter_tuning_results.json` for per-fold standard deviations.
 
 **Key Considerations:**
+- Cross-validation AP is the selection metric; threshold analysis and test-set
+  results are distinct subsequent steps
 - Selection used only training-side cross-validation results
 - Test set was held out and not used for model selection or hyperparameter tuning
 - Threshold was selected using out-of-fold predictions on training data, not test data

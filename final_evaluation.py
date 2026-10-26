@@ -41,8 +41,25 @@ RANDOM_STATE = 42
 N_FOLDS = 5
 
 def load_tuning_results():
-    """Load Phase 3 tuning results."""
-    return pd.read_csv(TUNING_RESULTS_PATH)
+    """Load Phase 3 tuning results.
+
+    Reads the summary CSV (primary ranking source) and, if the detailed JSON
+    exists, merges cv_avg_precision_std into the returned DataFrame so that
+    metadata and reports can include it.
+    """
+    df = pd.read_csv(TUNING_RESULTS_PATH)
+    json_path = REPORTS_DIR / "hyperparameter_tuning_results.json"
+    if json_path.exists():
+        with open(json_path, encoding='utf-8') as fh:
+            json_data = json.load(fh)
+        std_map = {
+            row['model']: row.get('cv_avg_precision_std', float('nan'))
+            for row in json_data
+        }
+        df['cv_avg_precision_std'] = df['model'].map(std_map)
+    else:
+        df['cv_avg_precision_std'] = float('nan')
+    return df
 
 def select_best_model(tuning_results):
     """Select best model based on cross-validation Average Precision."""
@@ -55,41 +72,29 @@ def parse_best_params(params_str):
     import ast
     return ast.literal_eval(params_str)
 
-def get_model_factory(model_name):
-    """Return model factory for given model name."""
-    if model_name == 'Logistic Regression':
-        return LogisticRegression
-    elif model_name == 'Decision Tree':
-        return DecisionTreeClassifier
-    elif model_name == 'Random Forest':
-        return RandomForestClassifier
-    elif model_name == 'Support Vector Classifier':
-        return lambda: CalibratedClassifierCV(SVC(random_state=42), ensemble=False)
-    else:
-        raise ValueError(f"Unknown model: {model_name}")
-
 def build_pipeline_with_params(preprocessor, model_name, params):
-    """Build pipeline with preprocessor and model with specific params."""
-    ModelClass = get_model_factory(model_name)
-    
-    # Remove classifier__ prefix from params
-    clean_params = {k.replace('classifier__', '').replace('classifier__estimator__', ''): v 
-                    for k, v in params.items()}
-    
-    if model_name == 'Support Vector Classifier':
-        base_model = SVC(random_state=42)
-        for k, v in clean_params.items():
-            setattr(base_model, k, v)
-        model = CalibratedClassifierCV(base_model, ensemble=False)
-    else:
-        model = ModelClass(random_state=42)
-        for k, v in clean_params.items():
-            setattr(model, k, v)
-    
-    return Pipeline([
+    """Build pipeline using the shared model registry factory, then apply tuned
+    hyperparameters via Pipeline.set_params().
+
+    Using the registry factory guarantees that fixed defaults configured there
+    (e.g. max_iter=1000 for Logistic Regression) are always present before the
+    tuned parameters are overlaid.  Pipeline.set_params() accepts the original
+    GridSearchCV key names (classifier__C, classifier__estimator__kernel, etc.)
+    so no prefix manipulation is required and no phantom attributes are created
+    via setattr().
+    """
+    from algorithms.model_registry import get_model
+    model = get_model(model_name)
+
+    pipeline = Pipeline([
         ('preprocessor', preprocessor),
         ('classifier', model)
     ])
+
+    # params keys already use the pipeline-namespace (classifier__* /
+    # classifier__estimator__*) as stored by GridSearchCV – pass them directly.
+    pipeline.set_params(**params)
+    return pipeline
 
 def get_out_of_fold_predictions(X, y, pipeline):
     """Get out-of-fold predictions using cross-validation."""
@@ -235,7 +240,7 @@ def create_selection_summary(best_model_info, test_metrics, threshold_info, save
 ```
 
 **Cross-Validation Performance (Training Data):**
-- Average Precision: {best_model_info['best_avg_precision']:.4f}
+- Average Precision: {best_model_info['best_avg_precision']:.4f} ± {best_model_info['cv_avg_precision_std']:.4f}
 - ROC-AUC: {best_model_info['cv_roc_auc']:.4f} ± {best_model_info['cv_roc_auc_std']:.4f}
 - Precision: {best_model_info['cv_precision']:.4f} ± {best_model_info['cv_precision_std']:.4f}
 - Recall: {best_model_info['cv_recall']:.4f} ± {best_model_info['cv_recall_std']:.4f}
@@ -267,9 +272,21 @@ def create_selection_summary(best_model_info, test_metrics, threshold_info, save
 
 ## Selection Rationale
 
-The model was selected based on cross-validation Average Precision from Phase 3 hyperparameter tuning. This metric was chosen as the primary ranking criterion because it summarizes precision-recall trade-off and is appropriate for imbalanced datasets (churn rate ~26.5%).
+The model was selected based on cross-validation Average Precision from Phase 3
+hyperparameter tuning. This metric was chosen as the primary ranking criterion
+because it summarises the precision-recall trade-off and is appropriate for
+imbalanced datasets (churn rate ~26.5%).
+
+**Note on model comparison:** Logistic Regression (AP 0.6615) and Random Forest
+(AP 0.6610) are effectively tied on mean cross-validation Average Precision
+(difference < 0.001). Logistic Regression was selected because it achieves
+equivalent discriminative performance with faster training and greater
+interpretability. This is not a decisive advantage on AP alone; see
+`reports/hyperparameter_tuning_results.json` for per-fold standard deviations.
 
 **Key Considerations:**
+- Cross-validation AP is the selection metric; threshold analysis and test-set
+  results are distinct subsequent steps
 - Selection used only training-side cross-validation results
 - Test set was held out and not used for model selection or hyperparameter tuning
 - Threshold was selected using out-of-fold predictions on training data, not test data
@@ -294,7 +311,7 @@ The model was selected based on cross-validation Average Precision from Phase 3 
 - Test classification report: `reports/test_classification_report.txt`
 """
     
-    with open(save_path, 'w') as f:
+    with open(save_path, 'w', encoding='utf-8') as f:
         f.write(summary)
 
 def main():
@@ -388,7 +405,7 @@ def main():
     
     # Classification report
     report = classification_report(y_test, y_pred, target_names=['No Churn', 'Churn'])
-    with open(REPORTS_DIR / "test_classification_report.txt", 'w') as f:
+    with open(REPORTS_DIR / "test_classification_report.txt", 'w', encoding='utf-8') as f:
         f.write(report)
     print("  - Classification report saved")
     
@@ -397,27 +414,46 @@ def main():
     print(f"\nFitted pipeline saved to {SAVED_MODELS_DIR / 'best_model.joblib'}")
     
     # Save metadata
-    clean_params = {k.replace('classifier__', ''): v for k, v in best_params.items()}
+    # Strip pipeline prefixes to get bare estimator-parameter names.
+    # LR/DT/RF params have 'classifier__X', SVC params have
+    # 'classifier__estimator__X'; strip the longest matching prefix first.
+    def _strip_prefix(k):
+        if k.startswith('classifier__estimator__'):
+            return k[len('classifier__estimator__'):]
+        if k.startswith('classifier__'):
+            return k[len('classifier__'):]
+        return k
+
+    clean_params = {_strip_prefix(k): v for k, v in best_params.items()}
+
+    import sklearn
     metadata = {
         'model_name': best_model_info['model'],
+        'scikit_learn_version': sklearn.__version__,
         'best_params': clean_params,
         'operating_threshold': float(operating_threshold),
         'cv_avg_precision': float(best_model_info['best_avg_precision']),
+        'cv_avg_precision_std': float(best_model_info.get('cv_avg_precision_std', float('nan'))),
         'cv_metrics': {
             'roc_auc': float(best_model_info['cv_roc_auc']),
+            'roc_auc_std': float(best_model_info['cv_roc_auc_std']),
             'precision': float(best_model_info['cv_precision']),
+            'precision_std': float(best_model_info['cv_precision_std']),
             'recall': float(best_model_info['cv_recall']),
-            'f1': float(best_model_info['cv_f1'])
+            'recall_std': float(best_model_info['cv_recall_std']),
+            'f1': float(best_model_info['cv_f1']),
+            'f1_std': float(best_model_info['cv_f1_std'])
         },
         'test_metrics': {k: float(v) for k, v in test_metrics.items()}
     }
-    
-    with open(SAVED_MODELS_DIR / "model_metadata.json", 'w') as f:
+
+    with open(SAVED_MODELS_DIR / "model_metadata.json", 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
     print(f"Model metadata saved to {SAVED_MODELS_DIR / 'model_metadata.json'}")
     
     # Create selection summary
-    clean_params_display = {k.replace('classifier__', ''): v for k, v in best_params.items()}
+    # For display, use the same clean bare-estimator-param names
+    clean_params_display = {_strip_prefix(k): v for k, v in best_params.items()}
     create_selection_summary(best_model_info, test_metrics, threshold_info, REPORTS_DIR / "selection_summary.md", clean_params_display)
     print(f"Selection summary saved to {REPORTS_DIR / 'selection_summary.md'}")
     
