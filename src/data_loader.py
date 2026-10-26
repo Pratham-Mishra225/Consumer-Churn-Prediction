@@ -17,6 +17,18 @@ ID_COLUMN = "customerID"
 TEST_SIZE = 0.20
 RANDOM_STATE = 42
 
+# Expected target values for validation
+EXPECTED_TARGET_VALUES = {"No", "Yes"}
+
+# Required columns (excluding ID)
+REQUIRED_COLUMNS = [
+    "gender", "SeniorCitizen", "Partner", "Dependents",
+    "tenure", "PhoneService", "MultipleLines", "InternetService",
+    "OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport",
+    "StreamingTV", "StreamingMovies", "Contract", "PaperlessBilling",
+    "PaymentMethod", "MonthlyCharges", "TotalCharges", "Churn"
+]
+
 def load_data():
 
     if not RAW_DATA_PATH.exists():
@@ -27,8 +39,57 @@ def load_data():
     df = pd.read_csv(RAW_DATA_PATH)
     return df
 
+
+def validate_data(df):
+    """
+    Validate the loaded dataset for:
+    - Required columns presence
+    - Target column validity
+    - Missing target values
+    - Invalid data types
+    """
+    # Check required columns
+    missing_cols = set(REQUIRED_COLUMNS) - set(df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Missing required columns: {missing_cols}"
+        )
+    
+    # Check target column exists
+    if TARGET_COLUMN not in df.columns:
+        raise ValueError(
+            f"Target column '{TARGET_COLUMN}' not found in dataset."
+        )
+    
+    # Check for missing target values
+    missing_target = df[TARGET_COLUMN].isna().sum()
+    if missing_target > 0:
+        raise ValueError(
+            f"Found {missing_target} missing values in target column '{TARGET_COLUMN}'."
+        )
+    
+    # Check for unexpected target values
+    unique_targets = set(df[TARGET_COLUMN].unique())
+    invalid_targets = unique_targets - EXPECTED_TARGET_VALUES
+    if invalid_targets:
+        raise ValueError(
+            f"Found unexpected target values: {invalid_targets}. "
+            f"Expected: {EXPECTED_TARGET_VALUES}"
+        )
+    
+    return True
+
 def prepare_data(df):
+    """
+    Prepare data for modeling:
+    - Drop ID column
+    - Encode target variable (No=0, Yes=1)
+    - Validate data integrity
+    """
     df = df.copy()
+    
+    # Validate data before processing
+    validate_data(df)
 
     if ID_COLUMN in df.columns:
         df = df.drop(columns=[ID_COLUMN])
@@ -87,8 +148,6 @@ def save_data(train_df, test_df):
     )
 
 
-
-
 def verify_split(train_df, test_df):
 
     print("\n========== DATA SPLIT VERIFICATION ==========")
@@ -145,8 +204,9 @@ def main():
     print("\nProcessed datasets saved successfully.")
     print(f"Train: {TRAIN_DATA_PATH}")
     print(f"Test:  {TEST_DATA_PATH}")
+    
+    return train_df, test_df
 
 
 if __name__ == "__main__":
     main()
-    

@@ -1,0 +1,23 @@
+{
+  "model_name": "Logistic Regression",
+  "best_params": {
+    "C": 1,
+    "class_weight": null
+  },
+  "operating_threshold": 0.3272694566222328,
+  "cv_avg_precision": 0.6614931439626843,
+  "cv_metrics": {
+    "roc_auc": 0.846149025453707,
+    "precision": 0.6520936350656179,
+    "recall": 0.5438127090301004,
+    "f1": 0.5924124081667455
+  },
+  "test_metrics": {
+    "test_avg_precision": 0.6337024099769349,
+    "test_roc_auc": 0.8420341522643313,
+    "test_precision": 0.5378486055776892,
+    "test_recall": 0.7219251336898396,
+    "test_f1": 0.6164383561643836,
+    "test_balanced_accuracy": 0.7488852721589294
+  }
+}
