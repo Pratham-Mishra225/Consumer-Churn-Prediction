@@ -22,8 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from data_loader import load_data, prepare_data, split_data, TARGET_COLUMN
-from preprocessing import (
+from src.data_loader import load_data, prepare_data, split_data, TARGET_COLUMN
+from src.preprocessing import (
     prepare_feature_types,
     get_preprocessor_and_features,
     build_preprocessor

@@ -19,7 +19,7 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from data_loader import (
+from src.data_loader import (
     load_data,
     validate_data,
     prepare_data,
@@ -30,7 +30,7 @@ from data_loader import (
     ID_COLUMN
 )
 
-from preprocessing import (
+from src.preprocessing import (
     prepare_feature_types,
     get_feature_columns,
     build_preprocessor,

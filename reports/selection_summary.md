@@ -11,10 +11,10 @@
 
 **Cross-Validation Performance (Training Data):**
 - Average Precision: 0.6615
-- ROC-AUC: 0.8461 ± 0.0126
-- Precision: 0.6521 ± 0.0256
-- Recall: 0.5438 ± 0.0409
-- F1-Score: 0.5924 ± 0.0298
+- ROC-AUC: 0.8461 ï¿½ 0.0126
+- Precision: 0.6521 ï¿½ 0.0256
+- Recall: 0.5438 ï¿½ 0.0409
+- F1-Score: 0.5924 ï¿½ 0.0298
 
 ## Threshold Analysis (Training Data)
 
@@ -23,7 +23,7 @@
 - Precision: 0.6520
 - Recall: 0.5438
 
-**Optimal Threshold (F1-Maximizing): 0.3273):**
+**Optimal Threshold (F1-Maximizing): 0.3273:**
 - F1-Score: 0.6381
 - Precision: 0.5591
 - Recall: 0.7431
