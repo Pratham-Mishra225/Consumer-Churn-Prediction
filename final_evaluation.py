@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from preprocessing import get_preprocessor_and_features, prepare_feature_types
+from src.preprocessing import get_preprocessor_and_features, prepare_feature_types
 
 TRAIN_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "train.csv"
 TEST_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "test.csv"

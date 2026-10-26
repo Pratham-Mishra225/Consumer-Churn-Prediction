@@ -11,11 +11,9 @@ MODEL_REGISTRY = {
 }
 
 def get_all_models():
-    """Return all registered model factories."""
     return MODEL_REGISTRY
 
 def get_model(model_name):
-    """Return a specific model by name."""
     if model_name not in MODEL_REGISTRY:
         raise ValueError(f"Model {model_name} not found in registry")
     return MODEL_REGISTRY[model_name]()

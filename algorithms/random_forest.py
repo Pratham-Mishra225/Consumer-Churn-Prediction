@@ -1,7 +1,6 @@
 from sklearn.ensemble import RandomForestClassifier
 
 def get_model():
-    """Return Random Forest classifier with baseline settings."""
     return RandomForestClassifier(
         random_state=42,
         class_weight='balanced',
